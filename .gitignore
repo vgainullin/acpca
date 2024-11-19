@@ -1,9 +1,7 @@
 # Data files
-*.csv
-*.tsv
+*.rda
 *.h5
 *.h5ad
-synthetic_data*
 
 # Python
 __pycache__/
