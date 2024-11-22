@@ -9,7 +9,7 @@ class CalAv(LinearOperator):
     """
     Compute eigenpairs from a specified region
     """
-    def __init__(self, X, K, l, dtype="float32"):
+    def __init__(self, X, K, l, dtype="float32", kernel="linear", bandwidth=None, degree=3, coef0=1, gamma=0.01):
         self.X = X
         self.K = K
         self.L = l
@@ -32,7 +32,8 @@ class ACPCA(BaseEstimator, TransformerMixin):
     def __init__(self, Y=None, n_components=2, L=0.0, lambda_method='original',
                  preprocess=True, center_x=True, scale_x=False, 
                  center_y=True, scale_y=False,
-                 kernel="linear", bandwidth=None):
+                 kernel="linear", bandwidth=None, gamma=0.01, coef0=1, degree=3,
+                 use_implicit=True):
         """
         Parameters:
         -----------
@@ -54,6 +55,9 @@ class ACPCA(BaseEstimator, TransformerMixin):
             Kernel type: "linear" or "gaussian"
         bandwidth : float, optional
             Bandwidth for gaussian kernel
+        use_implicit : bool, default=True
+            Whether to use implicit formation of adjusted covariance matrix
+            for better memory efficiency with large datasets
         """
         self.n_components = n_components
         self.L = L
@@ -66,25 +70,29 @@ class ACPCA(BaseEstimator, TransformerMixin):
         self.scale_y = scale_y
         self.kernel = kernel
         self.bandwidth = bandwidth
+        self.gamma = gamma
+        self.coef0 = coef0
+        self.degree = degree
+        self.use_implicit = use_implicit
         
-    def calkernel_(self, kernel="linear"):
+    def calkernel_(self):
         """
         Calculate kernel matrix for confounding factors.
         
         Parameters:
         -----------
         kernel : str
-            Kernel type: "linear" or "gaussian"
+            Kernel type: "linear", "gaussian", "polynomial", or "sigmoid"
         
         Returns:
         --------
         K : array-like
             Kernel matrix
         """
-        if kernel == "linear":
+        if self.kernel == "linear":
             return self.confounding_matrix @ self.confounding_matrix.T
         
-        elif kernel == "gaussian":
+        elif self.kernel == "gaussian":
             if self.bandwidth is None:
                 # Median heuristic for bandwidth selection if not specified
                 pairwise_dists = np.sum((self.confounding_matrix[:, None, :] - 
@@ -99,8 +107,51 @@ class ACPCA(BaseEstimator, TransformerMixin):
             K = np.exp(-squared_dists / (2 * self.bandwidth ** 2))
             return K
         
+        elif self.kernel == "polynomial":
+            # Default parameters for polynomial kernel
+            degree = getattr(self, 'degree', 3)  # polynomial degree
+            coef0 = getattr(self, 'coef0', 1)    # bias term
+            
+            # Calculate polynomial kernel: (x·y + coef0)^degree
+            linear_kernel = self.confounding_matrix @ self.confounding_matrix.T
+            K = (linear_kernel + coef0) ** degree
+            return K
+        
+        elif self.kernel == "sigmoid":
+            # Default parameters for sigmoid kernel
+            gamma = getattr(self, 'gamma', 0.01)  # scale parameter
+            coef0 = getattr(self, 'coef0', 1)     # bias term
+            
+            # Calculate sigmoid kernel: tanh(gamma * x·y + coef0)
+            linear_kernel = self.confounding_matrix @ self.confounding_matrix.T
+            K = np.tanh(gamma * linear_kernel + coef0)
+            return K
+        
         else:
-            raise ValueError(f"Unknown kernel: {kernel}. Choose 'linear' or 'gaussian'")
+            raise ValueError(f"Unknown kernel: {self.kernel}. Choose 'linear', 'gaussian', 'polynomial', or 'sigmoid'")
+
+    def _compute_adjusted_covariance_implicit(self, X, K, lambda_):
+        """
+        Compute adjusted covariance matrix implicitly using matrix-vector products.
+        Returns a LinearOperator that represents the adjusted covariance matrix.
+        """
+        def matvec(v):
+            # Compute (X.T - lambda * X.T @ K) @ (X @ v) efficiently
+            Xv = X @ v.reshape(-1, 1)  # Ensure v is a column vector
+            KXv = K @ Xv
+            return (X.T @ Xv - lambda_ * X.T @ KXv).flatten()  # Return flattened array
+
+        def rmatvec(v):
+            # For symmetric matrices, rmatvec is the same as matvec
+            return matvec(v)
+
+        n_features = X.shape[1]
+        return LinearOperator(
+            shape=(n_features, n_features),
+            matvec=matvec,
+            rmatvec=rmatvec,
+            dtype=X.dtype
+        )
    
     def calc_best_lambda(self, thresh=0.05):
         """
@@ -128,27 +179,24 @@ class ACPCA(BaseEstimator, TransformerMixin):
         - ratios: corresponding ratio values for each lambda
         - method: identifier for the optimization method used
         """
-        # Calculate kernel matrix for confounding factors
         K = self.calkernel_()
-        
-        # Generate range of lambda values to test
         lambdas = np.arange(0, 10, 0.05)
         ratios = []
         
-        # Test each lambda value
         for l in lambdas:
-            # Create linear operator for current lambda
-            cav = CalAv(self.X, K, l)
+            # Always use implicit formation for consistency when use_implicit=True
+            if self.use_implicit:
+                adj_cov_op = self._compute_adjusted_covariance_implicit(self.X, K, l)
+            else:
+                adj_cov_op = CalAv(self.X, K, l)
             
-            # Get top 2 eigenvectors
-            res = eigsh(cav, k=2, which="LA")  # LA = Largest (Algebraic)
+            # Compute eigendecomposition
+            eigenvalues, eigenvectors = eigsh(adj_cov_op, k=2, which="LA")
             
             # Transform data using eigenvectors
-            Xv = self.X @ res[1]
+            Xv = self.X @ eigenvectors
             
-            # Calculate ratio:
-            # Numerator: projection onto confounding space (Xv.T @ K @ Xv)
-            # Denominator: magnitude of transformed data (Xv.T @ Xv)
+            # Calculate ratio
             A = Xv.T @ (K @ Xv)
             ratio = np.diag(A) / np.diag(Xv.T @ Xv)
             ratios.append(ratio)
@@ -157,8 +205,6 @@ class ACPCA(BaseEstimator, TransformerMixin):
         ratios = np.vstack(ratios)
         
         # Find first lambda where all ratios are below threshold
-        # apply_along_axis sums up boolean mask for each row
-        # We want all components (ratios.shape[1]) to be below thresh
         tmp = np.where(np.apply_along_axis(np.sum, 1, ratios <= thresh) == ratios.shape[1])
         best_lambda = np.round(lambdas[np.min(tmp)], 4)
         
@@ -175,16 +221,20 @@ class ACPCA(BaseEstimator, TransformerMixin):
         """
         Compute best lambda using silhouette score
         """
-        from sklearn.metrics import silhouette_score
-        
         K = self.calkernel_()
         lambdas = np.arange(*lambda_range)
         scores = []
         
         for l in lambdas:
-            cav = CalAv(self.X, K, l)
-            _, v = eigsh(cav, k=self.n_components, which="LA")
-            X_transformed = self.X @ v
+            # Always use implicit formation for consistency when use_implicit=True
+            if self.use_implicit:
+                adj_cov_op = self._compute_adjusted_covariance_implicit(self.X, K, l)
+            else:
+                adj_cov_op = CalAv(self.X, K, l)
+            
+            # Compute eigendecomposition
+            _, eigenvectors = eigsh(adj_cov_op, k=self.n_components, which="LA")
+            X_transformed = self.X @ eigenvectors
             
             batch_labels = self.confounding_matrix.argmax(axis=1)
             sil_score = silhouette_score(
@@ -248,9 +298,16 @@ class ACPCA(BaseEstimator, TransformerMixin):
             else:
                 raise ValueError(f"Unknown lambda_method: {self.lambda_method}")
         
-        # Compute eigenvectors
-        cav = CalAv(self.X, K, l=self.L)
-        self.e_, self.components_ = eigsh(cav, k=self.n_components, which="LA")
+        # Always use implicit formation for consistency when use_implicit=True
+        if self.use_implicit:
+            adj_cov_op = self._compute_adjusted_covariance_implicit(self.X, K, self.L)
+        else:
+            adj_cov_op = CalAv(self.X, K, self.L)
+        
+        # Compute eigendecomposition
+        self.e_, self.components_ = eigsh(adj_cov_op, 
+                                        k=self.n_components, 
+                                        which="LA")
         
         return self
     
@@ -350,3 +407,27 @@ class ACPCA(BaseEstimator, TransformerMixin):
         plt.legend()
         plt.grid(True)
         return plt
+
+    def _compute_eigenpairs(self, operator, k):
+        try:
+            eigenvalues, eigenvectors = eigsh(
+                operator, 
+                k=k, 
+                which="LA",
+                tol=1e-10,  # Add tolerance
+                maxiter=1000,  # Add max iterations
+                return_eigenvectors=True
+            )
+            
+            # Validate results
+            if np.any(np.iscomplex(eigenvalues)):
+                raise ValueError("Complex eigenvalues detected")
+            
+            # Ensure positive eigenvalues
+            if np.any(eigenvalues <= 0):
+                warnings.warn("Non-positive eigenvalues detected")
+            
+            return eigenvalues, eigenvectors
+            
+        except RuntimeError as e:
+            raise RuntimeError(f"Eigendecomposition failed: {str(e)}")
