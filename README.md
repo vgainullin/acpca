@@ -1,14 +1,6 @@
-# AC-PCA: Adjusted Confounding Principal Component Analysis
+# ACPCA: Adjusted for Confounding Principal Component Analysis
 
-AC-PCA is a Python implementation of Adjusted Confounding Principal Component Analysis, a method designed to remove unwanted technical variation (batch effects) from high-dimensional data while preserving biological signal. It is particularly useful for analyzing high-dimensional biological data such as gene expression or methylation arrays where batch effects can obscure true biological signals.
-
-## Features
-
-- Removes batch effects while preserving biological variation
-- Automatic lambda parameter selection using two different methods
-- Visualization tools for lambda optimization
-- Synthetic data generation for testing and validation
-- Compatible with scikit-learn transformer interface
+ACPCA is a Python implementation of Adjusted for Confounding Principal Component Analysis, a method designed to mitigate technical variation (batch effects) from high-dimensional data while preserving signal.
 
 ## Installation
 
@@ -17,7 +9,7 @@ AC-PCA is a Python implementation of Adjusted Confounding Principal Component An
 Clone the repository and install the required dependencies:
 
 ```bash
-git clone https://github.com/yourusername/acpca.git
+git clone https://github.com/vgainullin/acpca.git
 cd acpca
 conda env create -f environment.yaml
 conda activate acpca
@@ -43,7 +35,7 @@ X, Y, batch_labels = create_synthetic_data(
     n_groups=2
 )
 
-# Initialize and fit AC-PCA
+# Initialize and fit ACPCA
 acpca = ACPCA(n_components=2, L=0.5)
 acpca.fit(X, y=batch_labels)
 
@@ -55,7 +47,7 @@ X_transformed = acpca.transform(X)
 
 ### Lambda Parameter Selection
 
-The lambda parameter controls the trade-off between batch effect removal and preservation of biological signal. AC-PCA supports two methods for automatically selecting the optimal lambda:
+The lambda parameter controls the trade-off between batch effect removal and preservation of signal. AC-PCA supports two methods for automatically selecting the optimal lambda:
 
 1. Original Method (from the AC-PCA paper):
 ```python
@@ -171,8 +163,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 2. Install development dependencies: `conda env create -f environment.yaml`
 3. Install pre-commit hooks: `pre-commit install`
 4. Run tests: `pytest tests/`
-
-## Support
-
-- Issue Tracker: [GitHub Issues](https://github.com/yourusername/acpca/issues)
-- Documentation: See the `docs/` directory

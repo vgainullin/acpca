@@ -3,38 +3,30 @@ import pandas as pd
 import os
 import matplotlib.pyplot as plt
 
-def create_synthetic_data(n_samples=300, n_genes=1000, num_batches=3, n_groups=2, random_state=42):
+def create_synthetic_data(n_samples=300, n_genes=1000, num_batches=3, n_groups=2, 
+                         apply_scale_effect=True,
+                         apply_dropout_effect=True,
+                         apply_technical_noise=True,
+                         apply_batch_structure=True,
+                         random_state=42):
     """
-    Create synthetic gene expression data with batch effects.
-    Ensures equal distribution of groups across batches to avoid any correlation.
-    
-    Parameters:
-    -----------
-    n_samples : int
-        Number of samples (cells/specimens)
-    n_genes : int
-        Number of genes (features)
-    num_batches : int
-        Number of technical batches
-    n_groups : int
-        Number of biological groups
-    random_state : int
-        Random seed for reproducibility
+    Create synthetic gene expression data with configurable batch effects.
     
     Returns:
     --------
-    X : array-like
-        Expression matrix (n_samples x n_genes)
-    Y : array-like
-        Biological group labels
-    batch_labels : array-like
+    X : ndarray
+        Expression data with batch effects
+    X_true : ndarray
+        True expression data without batch effects
+    Y : ndarray
+        Group labels
+    batch_labels : ndarray
         Batch assignments
     """
     np.random.seed(random_state)
     
     # Ensure n_samples is divisible by both n_groups and num_batches
     samples_per_group = n_samples // n_groups
-    samples_per_batch = n_samples // num_batches
     
     # Create balanced group assignments
     Y = np.repeat(range(n_groups), samples_per_group)
@@ -58,32 +50,67 @@ def create_synthetic_data(n_samples=300, n_genes=1000, num_batches=3, n_groups=2
         group_indices = np.where(group_mask)[0]
         batch_labels[group_indices] = np.random.permutation(batch_labels[group_indices])
     
-    # Initialize expression matrix
+    # Initialize expression matrices
     X = np.zeros((n_samples, n_genes))
+    X_true = np.zeros((n_samples, n_genes))
     
-    # Base expression patterns for each biological group
-    group_signatures = np.random.normal(0, 1, (n_groups, n_genes))
+    # Make biological differences more subtle and sparse
+    # Only a small subset of genes will be differentially expressed
+    n_de_genes = int(n_genes * 0.05)  # Only 5% of genes are differential
+    de_gene_indices = np.random.choice(n_genes, n_de_genes, replace=False)
     
-    # Generate expression data
+    # Create more subtle group signatures
+    group_signatures = np.zeros((n_groups, n_genes))
+    group_signatures[:, de_gene_indices] = np.random.normal(0, 0.3, (n_groups, n_de_genes))
+    
+    # Generate expression data with configurable batch effects
     for i in range(n_samples):
         group = Y[i]
         batch = batch_labels[i]
         
-        # Base expression for biological group
-        base_expr = np.exp(group_signatures[group] + np.random.normal(0, 0.1, n_genes))
+        # Generate subtle biological signal
+        biological_noise = np.random.normal(0, 0.05, n_genes)
+        base_expr = np.exp(group_signatures[group] + biological_noise)
         
-        # Add batch effects
-        scale_factor = np.random.normal(1 + batch * 0.2, 0.1)
-        dropout_prob = np.clip(0.7 + batch * 0.05, 0, 1)
-        dropout_mask = np.random.binomial(1, dropout_prob, n_genes)
-        tech_noise = np.random.normal(batch * 0.1, 0.2, n_genes)
+        # Store true expression without batch effects
+        X_true[i] = base_expr
         
-        # Combine effects
-        X[i] = base_expr * scale_factor * dropout_mask + tech_noise
-    
+        # Initialize with base expression
+        X[i] = base_expr
+        
+        if apply_scale_effect:
+            scale_factor = np.random.normal(1 + batch * 1.0, 0.3)
+            X[i] *= scale_factor
+        
+        if apply_dropout_effect:
+            dropout_prob = np.clip(0.6 + batch * 0.15, 0, 0.9)
+            dropout_mask = np.random.binomial(1, 1-dropout_prob, n_genes)
+            X[i] *= dropout_mask
+        
+        if apply_technical_noise:
+            tech_noise = np.random.normal(batch * 0.5, 0.5, n_genes)
+            X[i] += tech_noise
+            
+            # Add batch-specific gene patterns
+            batch_specific_pattern = np.zeros(n_genes)
+            batch_genes = np.random.choice(n_genes, int(n_genes * 0.1), replace=False)
+            batch_specific_pattern[batch_genes] = np.random.normal(batch * 0.5, 0.3)
+            X[i] += batch_specific_pattern
+
     # Ensure non-negative values
     X = np.maximum(X, 0)
     
+    if apply_batch_structure:
+        # Add correlation between genes
+        n_factors = 50
+        correlation_matrix = np.random.normal(0, 1, (n_genes, n_factors))
+        latent_factors = np.random.normal(0, 1, (n_factors, n_samples))
+        batch_structure = correlation_matrix @ latent_factors
+        
+        batch_scaling_factors = np.linspace(0.5, 1.5, num_batches)
+        batch_scaling = batch_scaling_factors[batch_labels]
+        X += batch_structure.T * batch_scaling[:, None] * 0.5
+
     # Verify batch-group distribution
     if __debug__:
         from pandas import crosstab
@@ -95,8 +122,9 @@ def create_synthetic_data(n_samples=300, n_genes=1000, num_batches=3, n_groups=2
         print("\nBatch-Group distribution:")
         print(contingency)
         print(f"\nChi-square test p-value: {p_value:.4f}")
+        print("(High p-value indicates good balance between batches and groups)")
     
-    return X, Y, batch_labels
+    return X, X_true, Y, batch_labels
 
 
 def save_synthetic_data_to_csv(X, Y, batch_labels, filename='synthetic_data.csv'):
