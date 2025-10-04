@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, eigsh
+from scipy.optimize import linear_sum_assignment
 from sklearn.metrics import silhouette_score
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import StandardScaler
@@ -449,7 +450,12 @@ class ACPCA(BaseEstimator, TransformerMixin):
             raise RuntimeError(f"Orientation alignment failed: {exc}") from exc
 
         reference = vt[:self.n_components].T
-        # Project current components onto reference basis and find optimal rotation
-        u_align, _, vt_align = np.linalg.svd(self.components_.T @ reference, full_matrices=False)
-        rotation = u_align @ vt_align
-        self.components_ = self.components_ @ rotation
+
+        scores = self.components_.T @ reference
+        abs_scores = np.abs(scores)
+
+        row_ind, col_ind = linear_sum_assignment(-abs_scores)
+        aligned = self.components_[:, col_ind]
+        signs = np.sign(scores[row_ind, col_ind])
+        signs[signs == 0] = 1.0
+        self.components_ = aligned * signs
