@@ -100,6 +100,44 @@ def _batch_centroids(embeddings, labels):
     return np.vstack([embeddings[labels == label].mean(axis=0) for label in sorted_labels])
 
 
+def test_acpca_align_orientation_preserves_geometry():
+    """Alignment flag should only rotate embeddings for λ>0."""
+    data = np.loadtxt('data/data_example1.csv', delimiter=',', skiprows=1)
+    X = data[:, :-2]
+    batch_labels = data[:, -2].astype(int)
+
+    base_model = ACPCA(
+        n_components=2,
+        L=1.0,
+        preprocess=True,
+        use_implicit=False,
+        align_orientation=False,
+    )
+    base_coords = base_model.fit_transform(X, batch_labels)
+
+    aligned_model = ACPCA(
+        n_components=2,
+        L=1.0,
+        preprocess=True,
+        use_implicit=False,
+        align_orientation=True,
+    )
+    aligned_coords = aligned_model.fit_transform(X, batch_labels)
+
+    base_centered = base_coords - base_coords.mean(axis=0, keepdims=True)
+    aligned_centered = aligned_coords - aligned_coords.mean(axis=0, keepdims=True)
+
+    u_align, _, vt_align = np.linalg.svd(aligned_centered.T @ base_centered, full_matrices=False)
+    rotation = u_align @ vt_align
+
+    assert_allclose(rotation.T @ rotation, np.eye(2), atol=1e-6)
+    assert_allclose(aligned_centered @ rotation, base_centered, atol=1e-5)
+    assert_allclose(
+        _mean_pairwise_distance(aligned_coords, batch_labels),
+        _mean_pairwise_distance(base_coords, batch_labels),
+    )
+
+
 def test_acpca_zero_lambda_matches_pca_on_example_dataset():
     """With λ=0 and orientation alignment, AC-PCA should match PCA centroid layout."""
     data = np.loadtxt('data/data_example1.csv', delimiter=',', skiprows=1)

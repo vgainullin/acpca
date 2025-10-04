@@ -441,7 +441,10 @@ class ACPCA(BaseEstimator, TransformerMixin):
     def _align_component_orientation(self):
         """Rotate components to match SVD orientation of X for comparability."""
         try:
-            _, _, vt = np.linalg.svd(self.X, full_matrices=False)
+            reference_matrix = self.X
+            if getattr(self, 'center_x', True):
+                reference_matrix = reference_matrix - np.mean(reference_matrix, axis=0, keepdims=True)
+            _, _, vt = np.linalg.svd(reference_matrix, full_matrices=False)
         except np.linalg.LinAlgError as exc:  # pragma: no cover - defensive path
             raise RuntimeError(f"Orientation alignment failed: {exc}") from exc
 
