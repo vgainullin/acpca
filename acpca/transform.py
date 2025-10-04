@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, eigsh
+from scipy.optimize import linear_sum_assignment
 from sklearn.metrics import silhouette_score
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import StandardScaler
@@ -31,9 +32,9 @@ class CalAv(LinearOperator):
 class ACPCA(BaseEstimator, TransformerMixin):
     def __init__(self, Y=None, n_components=2, L=0.0, lambda_method='original',
                  preprocess=True, center_x=True, scale_x=False, 
-                 center_y=True, scale_y=False,
+                 center_y=False, scale_y=False,
                  kernel="linear", bandwidth=None, gamma=0.01, coef0=1, degree=3,
-                 use_implicit=True):
+                 use_implicit=True, align_orientation=False):
         """
         Parameters:
         -----------
@@ -74,6 +75,7 @@ class ACPCA(BaseEstimator, TransformerMixin):
         self.coef0 = coef0
         self.degree = degree
         self.use_implicit = use_implicit
+        self.align_orientation = align_orientation
         
     def calkernel_(self):
         """
@@ -270,6 +272,7 @@ class ACPCA(BaseEstimator, TransformerMixin):
             self.x_scaler_ = StandardScaler(with_mean=self.center_x, 
                                           with_std=self.scale_x)
             self.y_imputer_ = SimpleImputer(strategy='mean')
+            # Leave confounder scaling off by default; enabling it changes categorical IDs before make_confounder_matrix.
             self.y_scaler_ = StandardScaler(with_mean=self.center_y, 
                                           with_std=self.scale_y)
             
@@ -303,12 +306,15 @@ class ACPCA(BaseEstimator, TransformerMixin):
             adj_cov_op = self._compute_adjusted_covariance_implicit(self.X, K, self.L)
         else:
             adj_cov_op = CalAv(self.X, K, self.L)
-        
+
         # Compute eigendecomposition
         self.e_, self.components_ = eigsh(adj_cov_op, 
                                         k=self.n_components, 
                                         which="LA")
-        
+
+        if self.align_orientation:
+            self._align_component_orientation()
+
         return self
     
     def transform(self, X):
@@ -373,6 +379,7 @@ class ACPCA(BaseEstimator, TransformerMixin):
             'v': self.components_,
             'X': self.X,
             'lambda_method': self.lambda_method,
+            'align_orientation': self.align_orientation,
         }
 
     def set_params(self, **parameters):
@@ -431,3 +438,28 @@ class ACPCA(BaseEstimator, TransformerMixin):
             
         except RuntimeError as e:
             raise RuntimeError(f"Eigendecomposition failed: {str(e)}")
+
+    def _align_component_orientation(self):
+        """Rotate components to match SVD orientation of X for comparability."""
+        try:
+            reference_matrix = self.X
+            if getattr(self, 'center_x', True):
+                reference_matrix = reference_matrix - np.mean(reference_matrix, axis=0, keepdims=True)
+            _, _, vt = np.linalg.svd(reference_matrix, full_matrices=False)
+        except np.linalg.LinAlgError as exc:  # pragma: no cover - defensive path
+            raise RuntimeError(f"Orientation alignment failed: {exc}") from exc
+
+        reference = vt[:self.n_components].T
+
+        scores = self.components_.T @ reference
+        abs_scores = np.abs(scores)
+
+        row_ind, col_ind = linear_sum_assignment(-abs_scores)
+        aligned = self.components_[:, col_ind]
+        signs = np.sign(scores[row_ind, col_ind])
+        signs[signs == 0] = 1.0
+        self.components_ = aligned * signs
+
+        # Keep eigenvalues paired with their rotated components
+        if hasattr(self, "e_"):
+            self.e_ = self.e_[col_ind]
