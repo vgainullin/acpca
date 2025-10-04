@@ -459,3 +459,7 @@ class ACPCA(BaseEstimator, TransformerMixin):
         signs = np.sign(scores[row_ind, col_ind])
         signs[signs == 0] = 1.0
         self.components_ = aligned * signs
+
+        # Keep eigenvalues paired with their rotated components
+        if hasattr(self, "e_"):
+            self.e_ = self.e_[col_ind]
