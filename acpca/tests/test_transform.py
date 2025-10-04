@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn.decomposition import PCA
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 from acpca import ACPCA
 
@@ -34,3 +34,24 @@ def test_acpca_equals_pca_when_lambda_zero():
         )
     
 
+
+def test_acpca_preprocess_preserves_confounder_labels():
+    """Default preprocessing should not distort the confounder design matrix."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(6, 4))
+    labels = np.array([0, 1, 2, 0, 1, 2])
+
+    model = ACPCA(
+        n_components=1,
+        preprocess=True,
+        use_implicit=True,
+    )
+
+    model.fit(X, labels)
+
+    recovered = model.confounding_matrix.argmax(axis=1)
+    assert_array_equal(
+        recovered,
+        labels,
+        err_msg="Confounder preprocessing remapped batch labels",
+    )

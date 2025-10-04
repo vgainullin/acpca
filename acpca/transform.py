@@ -31,7 +31,7 @@ class CalAv(LinearOperator):
 class ACPCA(BaseEstimator, TransformerMixin):
     def __init__(self, Y=None, n_components=2, L=0.0, lambda_method='original',
                  preprocess=True, center_x=True, scale_x=False, 
-                 center_y=True, scale_y=False,
+                 center_y=False, scale_y=False,
                  kernel="linear", bandwidth=None, gamma=0.01, coef0=1, degree=3,
                  use_implicit=True):
         """
@@ -270,6 +270,7 @@ class ACPCA(BaseEstimator, TransformerMixin):
             self.x_scaler_ = StandardScaler(with_mean=self.center_x, 
                                           with_std=self.scale_x)
             self.y_imputer_ = SimpleImputer(strategy='mean')
+            # Leave confounder scaling off by default; enabling it changes categorical IDs before make_confounder_matrix.
             self.y_scaler_ = StandardScaler(with_mean=self.center_y, 
                                           with_std=self.scale_y)
             
