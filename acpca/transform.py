@@ -33,7 +33,7 @@ class ACPCA(BaseEstimator, TransformerMixin):
                  preprocess=True, center_x=True, scale_x=False, 
                  center_y=False, scale_y=False,
                  kernel="linear", bandwidth=None, gamma=0.01, coef0=1, degree=3,
-                 use_implicit=True):
+                 use_implicit=True, align_orientation=False):
         """
         Parameters:
         -----------
@@ -74,6 +74,7 @@ class ACPCA(BaseEstimator, TransformerMixin):
         self.coef0 = coef0
         self.degree = degree
         self.use_implicit = use_implicit
+        self.align_orientation = align_orientation
         
     def calkernel_(self):
         """
@@ -304,12 +305,15 @@ class ACPCA(BaseEstimator, TransformerMixin):
             adj_cov_op = self._compute_adjusted_covariance_implicit(self.X, K, self.L)
         else:
             adj_cov_op = CalAv(self.X, K, self.L)
-        
+
         # Compute eigendecomposition
         self.e_, self.components_ = eigsh(adj_cov_op, 
                                         k=self.n_components, 
                                         which="LA")
-        
+
+        if self.align_orientation:
+            self._align_component_orientation()
+
         return self
     
     def transform(self, X):
@@ -374,6 +378,7 @@ class ACPCA(BaseEstimator, TransformerMixin):
             'v': self.components_,
             'X': self.X,
             'lambda_method': self.lambda_method,
+            'align_orientation': self.align_orientation,
         }
 
     def set_params(self, **parameters):
@@ -432,3 +437,16 @@ class ACPCA(BaseEstimator, TransformerMixin):
             
         except RuntimeError as e:
             raise RuntimeError(f"Eigendecomposition failed: {str(e)}")
+
+    def _align_component_orientation(self):
+        """Rotate components to match SVD orientation of X for comparability."""
+        try:
+            _, _, vt = np.linalg.svd(self.X, full_matrices=False)
+        except np.linalg.LinAlgError as exc:  # pragma: no cover - defensive path
+            raise RuntimeError(f"Orientation alignment failed: {exc}") from exc
+
+        reference = vt[:self.n_components].T
+        # Project current components onto reference basis and find optimal rotation
+        u_align, _, vt_align = np.linalg.svd(self.components_.T @ reference, full_matrices=False)
+        rotation = u_align @ vt_align
+        self.components_ = self.components_ @ rotation

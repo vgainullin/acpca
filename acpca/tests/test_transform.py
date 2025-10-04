@@ -93,3 +93,39 @@ def test_acpca_reduces_batch_structure_on_example_dataset():
 
     assert acpca_batch_spread > pca_batch_spread * 4, "Batch clustering persisted after AC-PCA"
     assert acpca_annotation_spread < pca_annotation_spread * 0.1, "Annotation replicates did not align after AC-PCA"
+
+
+def _batch_centroids(embeddings, labels):
+    sorted_labels = np.unique(labels)
+    return np.vstack([embeddings[labels == label].mean(axis=0) for label in sorted_labels])
+
+
+def test_acpca_zero_lambda_matches_pca_on_example_dataset():
+    """With λ=0 and orientation alignment, AC-PCA should match PCA centroid layout."""
+    data = np.loadtxt('data/data_example1.csv', delimiter=',', skiprows=1)
+    X = data[:, :-2]
+    batch_labels = data[:, -2].astype(int)
+    annotations = data[:, -1].astype(int)
+
+    pca_components = PCA(n_components=2).fit_transform(X)
+
+    acpca = ACPCA(n_components=2, L=0.0, preprocess=True, align_orientation=True)
+    acpca_components = acpca.fit_transform(X, batch_labels)
+
+    # Match component signs to avoid trivial inversions
+    for idx in range(pca_components.shape[1]):
+        if np.dot(acpca_components[:, idx], pca_components[:, idx]) < 0:
+            acpca_components[:, idx] *= -1
+
+    pca_batch_spread = _mean_pairwise_distance(pca_components, batch_labels)
+    acpca_batch_spread = _mean_pairwise_distance(acpca_components, batch_labels)
+
+    pca_annotation_spread = _mean_pairwise_distance(pca_components, annotations)
+    acpca_annotation_spread = _mean_pairwise_distance(acpca_components, annotations)
+
+    assert_allclose(acpca_batch_spread, pca_batch_spread, rtol=1e-5)
+    assert_allclose(acpca_annotation_spread, pca_annotation_spread, rtol=1e-5)
+
+    pca_centroids = _batch_centroids(pca_components, batch_labels)
+    acpca_centroids = _batch_centroids(acpca_components, batch_labels)
+    assert_allclose(acpca_centroids, pca_centroids, atol=1e-6, rtol=1e-6)
