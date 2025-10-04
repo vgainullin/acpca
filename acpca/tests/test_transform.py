@@ -55,3 +55,41 @@ def test_acpca_preprocess_preserves_confounder_labels():
         labels,
         err_msg="Confounder preprocessing remapped batch labels",
     )
+
+
+def _mean_pairwise_distance(X, labels):
+    total = 0.0
+    groups = 0
+    for label in np.unique(labels):
+        idx = np.where(labels == label)[0]
+        if idx.size < 2:
+            continue
+        vectors = X[idx]
+        dists = np.linalg.norm(vectors[:, None, :] - vectors[None, :, :], axis=2)
+        pairwise = dists[np.triu_indices(idx.size, k=1)]
+        total += pairwise.mean()
+        groups += 1
+    return total / groups if groups else 0.0
+
+
+def test_acpca_reduces_batch_structure_on_example_dataset():
+    """AC-PCA should remove batch-driven structure while aligning biological replicates."""
+    data = np.loadtxt('data/data_example1.csv', delimiter=',', skiprows=1)
+    X = data[:, :-2]
+    batch_labels = data[:, -2].astype(int)
+    annotations = data[:, -1].astype(int)
+
+    pca_components = PCA(n_components=2).fit_transform(X)
+
+    acpca = ACPCA(n_components=2, L=1.0, preprocess=True)
+    acpca.fit(X, batch_labels)
+    acpca_components = acpca.transform(X)
+
+    pca_batch_spread = _mean_pairwise_distance(pca_components, batch_labels)
+    acpca_batch_spread = _mean_pairwise_distance(acpca_components, batch_labels)
+
+    pca_annotation_spread = _mean_pairwise_distance(pca_components, annotations)
+    acpca_annotation_spread = _mean_pairwise_distance(acpca_components, annotations)
+
+    assert acpca_batch_spread > pca_batch_spread * 4, "Batch clustering persisted after AC-PCA"
+    assert acpca_annotation_spread < pca_annotation_spread * 0.1, "Annotation replicates did not align after AC-PCA"
