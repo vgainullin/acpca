@@ -34,7 +34,7 @@ class ACPCA(BaseEstimator, TransformerMixin):
                  preprocess=True, center_x=True, scale_x=False, 
                  center_y=False, scale_y=False,
                  kernel="linear", bandwidth=None, gamma=0.01, coef0=1, degree=3,
-                 use_implicit=True, align_orientation=False):
+                 use_implicit=True, align_orientation=True):
         """
         Parameters:
         -----------
@@ -59,6 +59,9 @@ class ACPCA(BaseEstimator, TransformerMixin):
         use_implicit : bool, default=True
             Whether to use implicit formation of adjusted covariance matrix
             for better memory efficiency with large datasets
+        align_orientation : bool, default=True
+            Rotate principal components to a stable orientation aligned with the
+            SVD of the input for easier comparison across runs
         """
         self.n_components = n_components
         self.L = L

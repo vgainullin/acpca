@@ -49,6 +49,10 @@ plots/
 *.jpg
 *.pdf
 
+# Documentation assets
+!assets/
+!assets/*.png
+
 # OS-specific
 .DS_Store
 Thumbs.db
