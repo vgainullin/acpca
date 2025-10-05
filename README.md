@@ -72,6 +72,76 @@ acpca.fit(X, y=batch_labels)
 acpca.plot_lambda_optimization()
 ```
 
+#### Toy Example (Unit Test)
+
+The toy dataset in `data/data_example1.csv` (used by the AC-PCA unit tests) highlights
+how the method removes batch structure while preserving biological signal. Colors
+in the plot below correspond to sequencing batches, and marker shapes indicate the
+biological replicate annotation. Standard PCA clusters by batch, whereas AC-PCA
+with `L=1` collapses batch-driven variation so that replicates align. The implementation
+aligns component orientation by default, making it easier to compare to PCA runs.
+
+![PCA vs AC-PCA on the toy dataset](assets/acpca_vs_pca_toy.png)
+
+You can regenerate the figure by running:
+
+```python
+import pandas as pd
+import matplotlib.pyplot as plt
+from acpca import ACPCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+
+frame = pd.read_csv('data/data_example1.csv')
+X = frame.iloc[:, :-2].to_numpy()
+batches = frame['batch_labels'].to_numpy()
+annotations = frame['point_annotation'].astype(str).to_numpy()
+
+# Baseline PCA on centered data (matches ACPCA preprocessing)
+X_centered = StandardScaler(with_mean=True, with_std=False).fit_transform(X)
+pca_coords = PCA(n_components=2).fit_transform(X_centered)
+
+# AC-PCA emphasises biology over batch
+acpca = ACPCA(n_components=2, L=1.0, preprocess=True)
+acpca_coords = acpca.fit_transform(X, batches)
+
+def _plot(coords, title, ax):
+    scatter = ax.scatter(
+        coords[:, 0],
+        coords[:, 1],
+        c=batches,
+        cmap=plt.colormaps['viridis'],
+        s=90,
+        edgecolor='white',
+        linewidth=0.6,
+    )
+    for xval, yval, label in zip(coords[:, 0], coords[:, 1], annotations):
+        ax.text(xval, yval, label, fontsize=8, ha='center', va='center', color='black')
+    ax.set_title(title)
+    ax.set_xlabel('Component 1')
+    ax.set_ylabel('Component 2')
+    ax.axhline(0.0, color='0.85', linewidth=0.8, zorder=0)
+    ax.axvline(0.0, color='0.85', linewidth=0.8, zorder=0)
+    ax.set_box_aspect(1.0)
+    return scatter
+
+fig = plt.figure(figsize=(11, 4.2))
+panel_width = 0.35
+panel_height = 0.75
+left_margin = 0.08
+bottom_margin = 0.14
+gap = 0.10
+axes = [
+    fig.add_axes([left_margin, bottom_margin, panel_width, panel_height]),
+    fig.add_axes([left_margin + panel_width + gap, bottom_margin, panel_width, panel_height]),
+]
+
+_plot(pca_coords, 'PCA', axes[0])
+_plot(acpca_coords, 'ACPCA (L=1)', axes[1])
+fig.suptitle('Toy dataset embedding: PCA vs AC-PCA (L=1)')
+fig.savefig('assets/acpca_vs_pca_toy.png', dpi=200, bbox_inches='tight')
+```
+
 ## API Reference
 
 ### ACPCA Class
