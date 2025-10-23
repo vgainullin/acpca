@@ -193,6 +193,10 @@ AC-PCA reduces batch clustering by an order of magnitude while improving cell-ty
 to both PCA variants. The λ sweep figure demonstrates that batch effects are largely mitigated once λ ≥ 0.2
 without sacrificing biological structure.
 
+**Metrics.** Adjusted Rand Index (ARI) measures how closely the inferred clusters match the reference partition
+after discounting chance agreement (1.0 indicates identical partitions). Normalized Mutual Information (NMI)
+quantifies the shared information between the cluster assignments and reference labels, normalized to [0, 1].
+
 ## API Reference
 
 ### ACPCA Class
