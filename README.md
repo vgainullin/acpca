@@ -181,6 +181,8 @@ Running the script generates clustering metrics and publication-ready figures un
 python tools/run_pancreas_example.py
 ```
 
+![Pancreas clustering panels for PCA variants and AC-PCA](assets/pancreas_cluster_density.png)
+
 Using the default subset (≈1.2k cells, 800 genes) the clustering agreement with reference labels is:
 
 | Method                   | Cell-type ARI | Cell-type NMI | Batch ARI | Batch NMI |
