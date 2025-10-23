@@ -142,6 +142,57 @@ fig.suptitle('Toy dataset embedding: PCA vs AC-PCA (L=1)')
 fig.savefig('assets/acpca_vs_pca_toy.png', dpi=200, bbox_inches='tight')
 ```
 
+### Real Data Benchmark: Human Pancreas
+
+To demonstrate AC-PCA on real single-cell data we provide a reproducible benchmark
+in `tools/run_pancreas_example.py`. The script compares:
+
+- Standard PCA on centered counts.
+- PCA after per-batch quantile normalization.
+- AC-PCA with automatically selected (λ≈0.8) and swept hyperparameters.
+
+#### Dataset
+
+We use the cleaned human pancreas integration benchmark released by the
+**SCIB (Single-cell integration benchmarking)** study. The dataset assembles
+multiple batches sequenced with different technologies (CEL-Seq/CEL-Seq2, Fluidigm C1,
+inDrop, Smart-seq/SMARTer, etc.), each with distinct cell-type compositions. For instance,
+CEL-Seq and CEL-Seq2 batches curated by Muraro *et al.* (2016) and Grün *et al.* (2016) pool
+whole islets, capturing both abundant and rare pancreatic lineages, while the SMARTer batch
+from Xin *et al.* (2016) focuses on the dominant endocrine populations. SCIB harmonized the
+annotations across batches, delivering the data as an `AnnData` H5AD file ready for
+integration benchmarking.
+
+Download the preprocessed matrix from Figshare:
+[https://figshare.com/ndownloader/files/24539828](https://figshare.com/ndownloader/files/24539828)
+
+Place the file at `data/human_pancreas_norm_complexBatch.h5ad` before running the benchmark.
+
+#### Running the benchmark
+
+Running the script generates clustering metrics and publication-ready figures under `assets/`:
+
+- `pancreas_cluster_density.png` – batch vs. cell-type clustering panels for each method.
+- `pancreas_acpca_pca_comparison.png` – side-by-side embeddings highlighting batch removal.
+- `pancreas_acpca_lambda_sweep.png` – AC-PCA λ sensitivity with batch agreement curves.
+- CSV outputs with the exact ARI/NMI scores used for annotations.
+
+```bash
+python tools/run_pancreas_example.py
+```
+
+Using the default subset (≈1.2k cells, 800 genes) the clustering agreement with reference labels is:
+
+| Method                   | Cell-type ARI | Cell-type NMI | Batch ARI | Batch NMI |
+|--------------------------|---------------|---------------|-----------|-----------|
+| PCA                      | 0.275         | 0.478         | 0.325     | 0.528     |
+| Quantile-normalized PCA  | 0.315         | 0.548         | 0.190     | 0.361     |
+| AC-PCA (λ≈0.80)          | **0.461**     | **0.679**     | **0.023** | **0.077** |
+
+AC-PCA reduces batch clustering by an order of magnitude while improving cell-type separation relative
+to both PCA variants. The λ sweep figure demonstrates that batch effects are largely mitigated once λ ≥ 0.2
+without sacrificing biological structure.
+
 ## API Reference
 
 ### ACPCA Class
